@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { fallbackLog } from '@/lib/tamil-motors/store';
 import { getBikes } from '@/lib/tamil-motors/bikes';
 import { getCustomers } from '@/lib/tamil-motors/customers';
 import { getEmployees } from '@/lib/tamil-motors/employees';
@@ -34,6 +35,11 @@ const EMPTY: Dealership = {
 export function useDealership() {
   const [data, setData] = React.useState<Dealership>(EMPTY);
   const [loading, setLoading] = React.useState(true);
+  const [nonce, setNonce] = React.useState(0);
+  const [offline, setOffline] = React.useState<string[]>([]);
+
+  /** Re-reads every collection — call after a write so the tables reflect it. */
+  const refresh = React.useCallback(() => setNonce((n) => n + 1), []);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -51,10 +57,12 @@ export function useDealership() {
         bikes, customers, employees, sales, inventory, bookings, testDrives,
         payments, expenses, finance, insurance, notifications, followups,
       });
+      setOffline([...fallbackLog]);
       setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [nonce]);
 
-  return { ...data, loading };
+  /** Collections that could not be read from Firestore on this load. */
+  return { ...data, loading, refresh, offline };
 }

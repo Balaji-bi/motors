@@ -47,6 +47,18 @@ export default function AdminDashboardPage() {
 
   return (
     <>
+      {d.offline.length ? (
+        <div className="mb-5 flex flex-wrap items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+          <AlertTriangle className="mt-0.5 h-4.5 w-4.5 shrink-0" />
+          <span>
+            <strong>Showing local demo data for {d.offline.length} collection(s).</strong>{' '}
+            Firestore returned nothing or refused the read for: {d.offline.join(', ')}. Seed the
+            database from <Link href="/admin/settings/demo-data" className="underline">Settings → Demo Data</Link>,
+            or check the security rules.
+          </span>
+        </div>
+      ) : null}
+
       <PageHeader
         title="Dashboard"
         description="Live overview of sales, customers, inventory and team performance across Tamil Motors."

@@ -9,7 +9,7 @@ import {
   FolderLock, Wrench, LogOut, ArrowRight, ShieldCheck,
 } from 'lucide-react';
 import { watchAuth, logOut } from '@/lib/firebase/auth';
-import { useDealership } from '@/components/admin/useDealership';
+import { loadCustomerPortal, EMPTY_PORTAL, type PortalData } from '@/lib/tamil-motors/customer-portal';
 import { Card, CardHeader, StatusChip, LoadingBlock, EmptyState, Spinner } from '@/components/ui';
 import { LockedButton } from '@/components/modals/LockedFeature';
 import { inr, fmtDate, initials } from '@/lib/utils';
@@ -18,13 +18,26 @@ export default function CustomerDashboardPage() {
   const router = useRouter();
   const [user, setUser] = React.useState<User | null>(null);
   const [checking, setChecking] = React.useState(true);
-  const d = useDealership();
+  const [portal, setPortal] = React.useState<PortalData>(EMPTY_PORTAL);
+  const [loadingPortal, setLoadingPortal] = React.useState(true);
 
   React.useEffect(() => watchAuth((u) => {
     if (!u) { router.replace('/customer/login'); return; }
     setUser(u);
     setChecking(false);
   }), [router]);
+
+  React.useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    (async () => {
+      const data = await loadCustomerPortal(user);
+      if (cancelled) return;
+      setPortal(data);
+      setLoadingPortal(false);
+    })();
+    return () => { cancelled = true; };
+  }, [user]);
 
   if (checking) {
     return (
@@ -40,14 +53,10 @@ export default function CustomerDashboardPage() {
   const email = user?.email ?? '';
   const displayName = user?.displayName || email.split('@')[0] || 'Customer';
 
-  // Match the signed-in customer against the dealership records by email.
-  const profile = d.customers.find((c) => c.email.toLowerCase() === email.toLowerCase());
-  const myTestDrives = d.testDrives.filter((t) => t.email.toLowerCase() === email.toLowerCase());
-  const myBookings = profile ? d.bookings.filter((b) => b.customerId === profile.id) : [];
-  const mySales = profile ? d.sales.filter((s) => s.customerId === profile.id) : [];
-  const myPayments = profile ? d.payments.filter((p) => p.customerId === profile.id) : [];
-  const myInsurance = profile ? d.insurance.filter((i) => i.customerId === profile.id) : [];
-  const myBike = profile?.purchasedBikeId ? d.bikes.find((b) => b.id === profile.purchasedBikeId) : undefined;
+  const {
+    profile, testDrives: myTestDrives, bookings: myBookings,
+    sales: mySales, payments: myPayments, insurance: myInsurance, bike: myBike,
+  } = portal;
 
   const SECTIONS = [
     { key: 'enquiries', icon: MessageSquare, title: 'My Enquiries', count: profile ? 1 : 0 },
@@ -82,7 +91,7 @@ export default function CustomerDashboardPage() {
           Your enquiries, test drives, bookings and payments with Tamil Motors.
         </p>
 
-        {d.loading ? <div className="mt-8"><LoadingBlock /></div> : (
+        {loadingPortal ? <div className="mt-8"><LoadingBlock /></div> : (
           <>
             <div className="mt-7 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {SECTIONS.map(({ key, icon: Icon, title, count }) => (

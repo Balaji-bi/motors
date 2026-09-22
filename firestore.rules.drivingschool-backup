@@ -1,0 +1,165 @@
+rules_version = '2';
+
+// Firestore security rules for the DrivePro Driving School Management System.
+// Deploy with:  firebase deploy --only firestore:rules
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------------------------------------------------------------- helpers
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function profile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function hasProfile() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function role() {
+      return hasProfile() ? profile().role : 'student';
+    }
+
+    function isAdmin() {
+      return isSignedIn() && role() == 'admin';
+    }
+
+    // Staff share the admin operational surface but not settings.
+    function isStaff() {
+      return isSignedIn() && (role() == 'admin' || role() == 'staff');
+    }
+
+    function isInstructor() {
+      return isSignedIn() && role() == 'instructor';
+    }
+
+    // The student id linked to the signed-in account, if any.
+    function linkedStudentId() {
+      return hasProfile() ? profile().get('studentId', '') : '';
+    }
+
+    function ownsStudentRecord(studentId) {
+      return isSignedIn() && linkedStudentId() == studentId;
+    }
+
+    // ------------------------------------------------------------------ users
+
+    match /users/{userId} {
+      // A signed-in user reads their own profile; staff read everyone.
+      allow read: if isSignedIn() && (request.auth.uid == userId || isStaff());
+
+      // A new account may create its own profile, but never grant itself a
+      // privileged role — only an admin can hand out admin/staff/instructor.
+      allow create: if isSignedIn()
+        && request.auth.uid == userId
+        && request.resource.data.role == 'student';
+
+      allow update: if isSignedIn()
+        && request.auth.uid == userId
+        && request.resource.data.role == resource.data.role;
+
+      allow create, update, delete: if isAdmin();
+    }
+
+    // --------------------------------------------------------------- students
+
+    match /students/{studentId} {
+      allow read: if isStaff() || isInstructor() || ownsStudentRecord(studentId);
+      allow create, update, delete: if isStaff();
+    }
+
+    // ------------------------------------------------- per-student sub-records
+
+    match /attendance/{recordId} {
+      allow read: if isStaff()
+        || isInstructor()
+        || ownsStudentRecord(resource.data.studentId);
+      allow create, update, delete: if isStaff() || isInstructor();
+    }
+
+    match /classes/{classId} {
+      allow read: if isStaff()
+        || isInstructor()
+        || ownsStudentRecord(resource.data.studentId);
+      allow create, update, delete: if isStaff() || isInstructor();
+    }
+
+    match /licenseApplications/{applicationId} {
+      allow read: if isStaff() || ownsStudentRecord(resource.data.studentId);
+      allow create, update, delete: if isStaff();
+    }
+
+    match /payments/{paymentId} {
+      allow read: if isStaff() || ownsStudentRecord(resource.data.studentId);
+      allow create, update, delete: if isStaff();
+    }
+
+    match /documents/{documentId} {
+      allow read: if isStaff() || ownsStudentRecord(resource.data.studentId);
+      allow create, update, delete: if isStaff();
+    }
+
+    // ----------------------------------------------------- shared reference data
+
+    // Courses, instructors and vehicles are shown on the public website.
+    match /courses/{courseId} {
+      allow read: if true;
+      allow write: if isStaff();
+    }
+
+    match /instructors/{instructorId} {
+      allow read: if true;
+      allow write: if isStaff();
+    }
+
+    match /vehicles/{vehicleId} {
+      allow read: if true;
+      allow write: if isStaff();
+    }
+
+    match /branches/{branchId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ---------------------------------------------------------- notifications
+
+    match /notifications/{notificationId} {
+      allow read: if isStaff()
+        || (isSignedIn() && resource.data.audience == 'all')
+        || (isSignedIn()
+            && resource.data.audience == 'student'
+            && ownsStudentRecord(resource.data.get('studentId', '')));
+      allow create, update, delete: if isStaff();
+    }
+
+    // ------------------------------------------------------------------ leads
+
+    // The public contact form writes enquiries; only staff may read them back.
+    match /leads/{leadId} {
+      allow create: if request.resource.data.keys().hasAll(['name', 'phone'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 1
+        && request.resource.data.name.size() < 120
+        && request.resource.data.phone is string
+        && request.resource.data.phone.size() < 20;
+      allow read, update, delete: if isStaff();
+    }
+
+    // --------------------------------------------------------------- settings
+
+    match /settings/{settingId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Anything not matched above is denied by default.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
